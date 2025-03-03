@@ -126,7 +126,7 @@ class Hy3DModelLoader:
         offload_device=mm.unet_offload_device()
 
         config_path = os.path.join(script_directory, "configs", "dit_config.yaml")
-        model_path = folder_paths.get_full_path("diffusion_models", model)
+        model_path = folder_paths.get_full_path("/models/diffusion_models/", model)
         pipe, vae = Hunyuan3DDiTFlowMatchingPipeline.from_single_file(
             ckpt_path=model_path, 
             config_path=config_path, 
