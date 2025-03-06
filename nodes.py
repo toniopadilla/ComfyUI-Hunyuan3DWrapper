@@ -1610,6 +1610,13 @@ class Hy3DModelFilePath:
     def INPUT_TYPES(s):
         return {
             "required": {
+                "ckpt_name": (folder_paths.get_filename_list("diffusion_models"), {"tooltip": "Select a model from diffusion_models directory"}),
+                "filter": ("STRING", {"default": "Filter list"}),
+                "custom": (["custom"], {"default": "custom"}),
+                "flux": (["flux"], {"default": "flux"}),
+                "hunyuan3d": (["hunyuan3d"], {"default": "hunyuan3d"}),
+                "sdxl": (["sdxl"], {"default": "sdxl"}),
+                "v1": (["v1"], {"default": "v1"}),
                 "model_type": (["safetensors", "ckpt", "all"], {"default": "safetensors"}),
             }
         }
@@ -1618,13 +1625,17 @@ class Hy3DModelFilePath:
     RETURN_NAMES = ("model_path", "model_name")
     FUNCTION = "get_path"
     CATEGORY = "Hunyuan3DWrapper"
-    DESCRIPTION = "Select a model file using a visual file explorer"
+    DESCRIPTION = "Select a model file from the available models, with filtering options"
 
-    def get_path(self, model_type):
-        # The values will be set by the JavaScript UI
-        # This is just a placeholder
-        # The actual model path is updated in the JavaScript code
-        return ("", "No model selected")
+    def get_path(self, ckpt_name, filter=None, custom=None, flux=None, hunyuan3d=None, sdxl=None, v1=None, model_type=None):
+        # Get the full path to the selected model
+        model_path = folder_paths.get_full_path("diffusion_models", ckpt_name)
+        
+        # If no model is selected (or the path is invalid), return empty values
+        if not model_path or not os.path.exists(model_path):
+            return ("", "No model selected")
+        
+        return (model_path, ckpt_name)
 
 NODE_CLASS_MAPPINGS = {
     "Hy3DModelLoader": Hy3DModelLoader,

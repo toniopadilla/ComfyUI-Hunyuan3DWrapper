@@ -87,102 +87,140 @@ async function fetchDirectories(path = "") {
 }
 
 function addModelFilePathWidget(nodeType, nodeData) {
-    chainCallback(nodeType.prototype, "onNodeCreated", function() {
-        // Create file input element
-        const fileInput = document.createElement("input");
-        Object.assign(fileInput, {
-            type: "file",
-            accept: ".safetensors,.ckpt,application/octet-stream",
-            style: "display: none",
-            onchange: async () => {
-                if (fileInput.files.length) {
-                    const filePath = fileInput.files[0].path;
-                    const fileName = fileInput.files[0].name;
-                    
-                    // Update path widget with the selected file path
-                    pathWidget.value = filePath;
-                    
-                    // Update the file name widget
-                    fileNameWidget.value = fileName;
-                    
-                    // Update outputs
-                    this.outputs[0].name = "model_path: " + filePath;
-                    this.outputs[1].name = "model_name: " + fileName;
-                    
-                    // Store values for serialization
-                    this._filePath = filePath;
-                    this._fileName = fileName;
-                    
-                    // Trigger an update
-                    if (pathWidget.callback) {
-                        pathWidget.callback(filePath);
+    chainCallback(nodeType.prototype, "onCreated", function() {
+        const that = this;
+        let models = {};
+        
+        // Cache original widget draw function to modify behavior
+        const origDrawWidgetValue = LiteGraph.ContextMenu.prototype.drawWidgetValue;
+        
+        // Create select element for filters
+        this.widgets.forEach((w, i) => {
+            if (w.name === 'filter') {
+                w.customTips = "Click to filter models";
+                w.options = {};
+                w.combo = true;
+                w.descriptor = "Click to filter models";
+                
+                // Modify the draw function to show the dropdown correctly
+                w.draw = function(ctx, node, width, pos, height) {
+                    if (!ctx) {
+                        return;
                     }
-                }
-            }
-        });
-        
-        document.body.append(fileInput);
-        
-        // Add widget for displaying and allowing manual entry of file path
-        const pathWidget = this.addWidget("text", "Model Path", "", (value) => {
-            this._filePath = value;
-            this.outputs[0].name = "model_path: " + value;
-        });
-        
-        // Add widget for displaying file name
-        const fileNameWidget = this.addWidget("text", "File Name", "No file selected", (value) => {
-            this._fileName = value;
-            this.outputs[1].name = "model_name: " + value;
-        });
-        
-        // Add button to open file explorer
-        const browseButton = this.addWidget("button", "Browse Files", null, () => {
-            // Clear the active click event
-            app.canvas.node_widget = null;
-            fileInput.click();
-        });
-        
-        // Store the widgets for easy access
-        this._pathWidget = pathWidget;
-        this._fileNameWidget = fileNameWidget;
-        
-        // Customize output names
-        this.outputs[0].name = "model_path: None";
-        this.outputs[1].name = "model_name: None";
-        
-        // Setup cleanup
-        chainCallback(this, "onRemoved", () => {
-            fileInput?.remove();
-        });
-        
-        // Handle serialization
-        const onSerialize = nodeType.prototype.onSerialize;
-        nodeType.prototype.onSerialize = function() {
-            const data = onSerialize ? onSerialize.apply(this) : {};
-            data.filePath = this._filePath;
-            data.fileName = this._fileName;
-            return data;
-        };
-        
-        // Handle deserialization
-        const onConfigure = nodeType.prototype.onConfigure;
-        nodeType.prototype.onConfigure = function(info) {
-            if (onConfigure) {
-                onConfigure.apply(this, arguments);
+                    return origDrawWidgetValue.call(that, ctx, this, width, pos, height);
+                };
+                
+                // Handle filter selection
+                w.callback = function(value, options, e, event) {
+                    if (value) {
+                        // Implementation depends on how the filters are organized in your ComfyUI fork
+                        // This is a simplified example
+                        let currentModelName = that.widgets.find(w => w.name === 'ckpt_name').value;
+                        let filterType = value.toLowerCase();
+                        
+                        if (filterType === "custom") {
+                            // Display custom models
+                            that.widgets.find(w => w.name === 'custom').onClicked?.call(that, w);
+                        } else if (filterType === "flux") {
+                            // Display flux models
+                            that.widgets.find(w => w.name === 'flux').onClicked?.call(that, w);
+                        } else if (filterType === "hunyuan3d") {
+                            // Display hunyuan3d models
+                            that.widgets.find(w => w.name === 'hunyuan3d').onClicked?.call(that, w);
+                        } else if (filterType === "sdxl") {
+                            // Display SDXL models
+                            that.widgets.find(w => w.name === 'sdxl').onClicked?.call(that, w);
+                        } else if (filterType === "v1") {
+                            // Display v1 models
+                            that.widgets.find(w => w.name === 'v1').onClicked?.call(that, w);
+                        }
+                    }
+                };
             }
             
-            if (info.filePath) {
-                this._filePath = info.filePath;
-                this._pathWidget.value = info.filePath;
-                this.outputs[0].name = "model_path: " + info.filePath;
+            // Add click handlers for category filters
+            if (['custom', 'flux', 'hunyuan3d', 'sdxl', 'v1'].includes(w.name)) {
+                w.hidden = true; // Hide these widgets as they're just used for filtering
+                w.onClicked = function(widget) {
+                    const ckptWidget = that.widgets.find(w => w.name === 'ckpt_name');
+                    
+                    // Filter models based on category
+                    // This will require a different implementation depending on your model naming convention
+                    // Here we simply filter by comparing part of the model filename
+                    const filteredModels = ckptWidget.options.values.filter(model => {
+                        if (widget.name === 'custom') {
+                            return model.startsWith("custom_");
+                        } else if (widget.name === 'flux') {
+                            return model.includes("flux");
+                        } else if (widget.name === 'hunyuan3d') {
+                            return model.includes("hunyuan");
+                        } else if (widget.name === 'sdxl') {
+                            return model.includes("sdxl");
+                        } else if (widget.name === 'v1') {
+                            return model.includes("v1") || model.includes("sd-v1");
+                        }
+                        return true;
+                    });
+                    
+                    // Update the dropdown options
+                    ckptWidget.options.values = filteredModels;
+                    if (filteredModels.length > 0) {
+                        // Select first model in filtered list if current selection isn't in the filtered list
+                        if (!filteredModels.includes(ckptWidget.value)) {
+                            ckptWidget.value = filteredModels[0];
+                            // Trigger the update
+                            ckptWidget.callback(ckptWidget.value);
+                        }
+                    }
+                    
+                    // Update filter display
+                    that.widgets.find(w => w.name === 'filter').value = widget.name;
+                };
             }
             
-            if (info.fileName) {
-                this._fileName = info.fileName;
-                this._fileNameWidget.value = info.fileName;
-                this.outputs[1].name = "model_name: " + info.fileName;
+            // Add handler for ckpt_name selection
+            if (w.name === 'ckpt_name') {
+                w.callback = function(value) {
+                    if (value) {
+                        // When a model is selected
+                        // Get the full path
+                        const modelPath = value; // The actual path is resolved on the backend
+                        
+                        // Update outputs
+                        that.outputs[0].name = "model_path: " + modelPath;
+                        that.outputs[1].name = "model_name: " + value;
+                        
+                        // Store values for serialization
+                        that._filePath = modelPath;
+                        that._fileName = value;
+                    }
+                };
             }
-        };
+        });
+    });
+    
+    // Handle serialization
+    chainCallback(nodeType.prototype, "onSerialize", function(o) {
+        if (this._filePath) o.filePath = this._filePath;
+        if (this._fileName) o.fileName = this._fileName;
+    });
+    
+    // Handle deserialization
+    chainCallback(nodeType.prototype, "onConfigure", function(o) {
+        if (o.filePath) this._filePath = o.filePath;
+        if (o.fileName) this._fileName = o.fileName;
+        
+        // Update widget values
+        setTimeout(() => {
+            const ckptWidget = this.widgets.find(w => w.name === 'ckpt_name');
+            if (ckptWidget && this._fileName) {
+                ckptWidget.value = this._fileName;
+            }
+            
+            // Update outputs
+            if (this._filePath) this.outputs[0].name = "model_path: " + this._filePath;
+            if (this._fileName) this.outputs[1].name = "model_name: " + this._fileName;
+        }, 100);
     });
 }
 
