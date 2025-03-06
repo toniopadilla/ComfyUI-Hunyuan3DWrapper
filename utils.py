@@ -3,6 +3,9 @@ import torch
 import logging
 import numpy as np
 import trimesh
+import os
+import traceback
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 log = logging.getLogger(__name__)
 
@@ -120,3 +123,54 @@ def yaw_pitch_r_fov_to_extrinsics_intrinsics(yaws, pitchs, rs, fovs, aspect_rati
         extrinsics = extrinsics[0]
         intrinsics = intrinsics[0]
     return extrinsics, intrinsics
+
+# Add this function to register the API endpoints for directory listing
+def register_api_endpoints(server):
+    """Register API endpoints for the Hunyuan3D extension."""
+    
+    @server.route("/hy3d/list_dirs", methods=["GET"])
+    def list_directories():
+        try:
+            path = server.args.get("path", "")
+            # Sanitize path to prevent directory traversal
+            path = os.path.normpath(path)
+            
+            # Don't allow going outside the root directory
+            if path.startswith(".."):
+                return {"error": "Invalid path"}, 400
+            
+            # Full path
+            full_path = os.path.abspath(path) if path else os.path.abspath(".")
+            
+            # Check if path exists
+            if not os.path.exists(full_path):
+                return {"error": "Path does not exist"}, 404
+            
+            # Get directories and files
+            directories = []
+            files = []
+            
+            for item in os.listdir(full_path):
+                item_path = os.path.join(full_path, item)
+                if os.path.isdir(item_path):
+                    directories.append({
+                        "name": item,
+                        "path": os.path.join(path, item) if path else item
+                    })
+                elif os.path.isfile(item_path) and (item.endswith(".safetensors") or item.endswith(".ckpt")):
+                    files.append({
+                        "name": item,
+                        "path": os.path.join(path, item) if path else item,
+                        "size": os.path.getsize(item_path),
+                        "modified": os.path.getmtime(item_path)
+                    })
+            
+            return {
+                "current_path": path,
+                "directories": sorted(directories, key=lambda d: d["name"]),
+                "files": sorted(files, key=lambda f: f["name"])
+            }
+        except Exception as e:
+            log.error(f"Error listing directories: {str(e)}")
+            log.error(traceback.format_exc())
+            return {"error": str(e)}, 500

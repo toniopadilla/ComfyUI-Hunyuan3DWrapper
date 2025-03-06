@@ -110,6 +110,7 @@ class Hy3DModelLoader:
                 "model": (folder_paths.get_filename_list("diffusion_models"), {"tooltip": "These models are loaded from the 'ComfyUI/models/diffusion_models' -folder",}),
             },
             "optional": {
+                "model_path": ("HY3DMODELPATH", {"tooltip": "Model path from file explorer. If provided, this takes precedence over the model selection."}),
                 "compile_args": ("HY3DCOMPILEARGS", {"tooltip": "torch.compile settings, when connected to the model loader, torch.compile of the selected models is attempted. Requires Triton and torch 2.5.0 is recommended"}),
                 "attention_mode": (["sdpa", "sageattn"], {"default": "sdpa"}),
                 "cublas_ops": ("BOOLEAN", {"default": False, "tooltip": "Enable optimized cublas linear layers, speeds up decoding: https://github.com/aredden/torch-cublas-hgemm"}),
@@ -121,16 +122,27 @@ class Hy3DModelLoader:
     FUNCTION = "loadmodel"
     CATEGORY = "Hunyuan3DWrapper"
 
-    def loadmodel(self, model, compile_args=None, attention_mode="sdpa", cublas_ops=False):
+    def loadmodel(self, model, model_path=None, compile_args=None, attention_mode="sdpa", cublas_ops=False):
         device = mm.get_torch_device()
         offload_device=mm.unet_offload_device()
 
         config_path = os.path.join(script_directory, "configs", "dit_config.yaml")
-        model_path = folder_paths.get_full_path("diffusion_models", model)
+        
+        # Use model_path if provided, otherwise use the standard selection
+        if model_path and model_path.strip():
+            # Direct path from Hy3DModelFilePath
+            model_path_to_use = model_path
+            # Check if it's a safetensors file
+            is_safetensors = model_path_to_use.endswith(".safetensors")
+        else:
+            # Standard path from selector
+            model_path_to_use = folder_paths.get_full_path("diffusion_models", model)
+            is_safetensors = True  # Assuming standard models are safetensors
+
         pipe, vae = Hunyuan3DDiTFlowMatchingPipeline.from_single_file(
-            ckpt_path=model_path, 
+            ckpt_path=model_path_to_use, 
             config_path=config_path, 
-            use_safetensors=True, 
+            use_safetensors=is_safetensors, 
             device=device, 
             offload_device=offload_device,
             compile_args=compile_args,
@@ -1593,6 +1605,27 @@ class Hy3DNvdiffrastRenderer:
         
         return (image_out.cpu().float(), mask_out.cpu().float(),)
 
+class Hy3DModelFilePath:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "model_type": (["safetensors", "ckpt", "all"], {"default": "safetensors"}),
+            }
+        }
+    
+    RETURN_TYPES = ("HY3DMODELPATH", "STRING")
+    RETURN_NAMES = ("model_path", "model_name")
+    FUNCTION = "get_path"
+    CATEGORY = "Hunyuan3DWrapper"
+    DESCRIPTION = "Select a model file using a visual file explorer"
+
+    def get_path(self, model_type):
+        # The values will be set by the JavaScript UI
+        # This is just a placeholder
+        # The actual model path is updated in the JavaScript code
+        return ("", "No model selected")
+
 NODE_CLASS_MAPPINGS = {
     "Hy3DModelLoader": Hy3DModelLoader,
     "Hy3DGenerateMesh": Hy3DGenerateMesh,
@@ -1623,7 +1656,8 @@ NODE_CLASS_MAPPINGS = {
     "Hy3DBPT": Hy3DBPT,
     "Hy3DMeshInfo": Hy3DMeshInfo,
     "Hy3DFastSimplifyMesh": Hy3DFastSimplifyMesh,
-    "Hy3DNvdiffrastRenderer": Hy3DNvdiffrastRenderer
+    "Hy3DNvdiffrastRenderer": Hy3DNvdiffrastRenderer,
+    "Hy3DModelFilePath": Hy3DModelFilePath
     }
 NODE_DISPLAY_NAME_MAPPINGS = {
     "Hy3DModelLoader": "Hy3DModelLoader",
@@ -1655,5 +1689,6 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "Hy3DBPT": "Hy3D BPT",
     "Hy3DMeshInfo": "Hy3D Mesh Info",
     "Hy3DFastSimplifyMesh": "Hy3D Fast Simplify Mesh",
-    "Hy3DNvdiffrastRenderer": "Hy3D Nvdiffrast Renderer"
+    "Hy3DNvdiffrastRenderer": "Hy3D Nvdiffrast Renderer",
+    "Hy3DModelFilePath": "Hy3D Model File Path"
     }

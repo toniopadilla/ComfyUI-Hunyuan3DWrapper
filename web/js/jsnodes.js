@@ -30,6 +30,9 @@ app.registerExtension({
 			case "Hy3DUploadMesh":
 				addUploadWidget(nodeType, nodeData, "mesh");
 				break;
+			case "Hy3DModelFilePath":
+				addModelFilePathWidget(nodeType, nodeData);
+				break;
 		}	
 		
 	},
@@ -64,6 +67,123 @@ async function uploadFile(file) {
     } catch (error) {
         alert(error);
     }
+}
+
+// Fetch directories from the server
+async function fetchDirectories(path = "") {
+    try {
+        const query = path ? `?path=${encodeURIComponent(path)}` : "";
+        const response = await api.fetchApi(`/hy3d/list_dirs${query}`);
+        if (response.status === 200) {
+            return await response.json();
+        } else {
+            console.error("Error fetching directories:", response.statusText);
+            return { directories: [], files: [] };
+        }
+    } catch (error) {
+        console.error("Error fetching directories:", error);
+        return { directories: [], files: [] };
+    }
+}
+
+function addModelFilePathWidget(nodeType, nodeData) {
+    chainCallback(nodeType.prototype, "onNodeCreated", function() {
+        // Create file input element
+        const fileInput = document.createElement("input");
+        Object.assign(fileInput, {
+            type: "file",
+            accept: ".safetensors,.ckpt,application/octet-stream",
+            style: "display: none",
+            onchange: async () => {
+                if (fileInput.files.length) {
+                    const filePath = fileInput.files[0].path;
+                    const fileName = fileInput.files[0].name;
+                    
+                    // Update path widget with the selected file path
+                    pathWidget.value = filePath;
+                    
+                    // Update the file name widget
+                    fileNameWidget.value = fileName;
+                    
+                    // Update outputs
+                    this.outputs[0].name = "model_path: " + filePath;
+                    this.outputs[1].name = "model_name: " + fileName;
+                    
+                    // Store values for serialization
+                    this._filePath = filePath;
+                    this._fileName = fileName;
+                    
+                    // Trigger an update
+                    if (pathWidget.callback) {
+                        pathWidget.callback(filePath);
+                    }
+                }
+            }
+        });
+        
+        document.body.append(fileInput);
+        
+        // Add widget for displaying and allowing manual entry of file path
+        const pathWidget = this.addWidget("text", "Model Path", "", (value) => {
+            this._filePath = value;
+            this.outputs[0].name = "model_path: " + value;
+        });
+        
+        // Add widget for displaying file name
+        const fileNameWidget = this.addWidget("text", "File Name", "No file selected", (value) => {
+            this._fileName = value;
+            this.outputs[1].name = "model_name: " + value;
+        });
+        
+        // Add button to open file explorer
+        const browseButton = this.addWidget("button", "Browse Files", null, () => {
+            // Clear the active click event
+            app.canvas.node_widget = null;
+            fileInput.click();
+        });
+        
+        // Store the widgets for easy access
+        this._pathWidget = pathWidget;
+        this._fileNameWidget = fileNameWidget;
+        
+        // Customize output names
+        this.outputs[0].name = "model_path: None";
+        this.outputs[1].name = "model_name: None";
+        
+        // Setup cleanup
+        chainCallback(this, "onRemoved", () => {
+            fileInput?.remove();
+        });
+        
+        // Handle serialization
+        const onSerialize = nodeType.prototype.onSerialize;
+        nodeType.prototype.onSerialize = function() {
+            const data = onSerialize ? onSerialize.apply(this) : {};
+            data.filePath = this._filePath;
+            data.fileName = this._fileName;
+            return data;
+        };
+        
+        // Handle deserialization
+        const onConfigure = nodeType.prototype.onConfigure;
+        nodeType.prototype.onConfigure = function(info) {
+            if (onConfigure) {
+                onConfigure.apply(this, arguments);
+            }
+            
+            if (info.filePath) {
+                this._filePath = info.filePath;
+                this._pathWidget.value = info.filePath;
+                this.outputs[0].name = "model_path: " + info.filePath;
+            }
+            
+            if (info.fileName) {
+                this._fileName = info.fileName;
+                this._fileNameWidget.value = info.fileName;
+                this.outputs[1].name = "model_name: " + info.fileName;
+            }
+        };
+    });
 }
 
 function addUploadWidget(nodeType, nodeData, widgetName) {
