@@ -132,48 +132,115 @@ def register_api_endpoints(server):
     def list_directories():
         try:
             path = server.args.get("path", "")
-            # Sanitize path to prevent directory traversal
+            model_type = server.args.get("model_type", "all")
+            
+            # Sanitize path
             path = os.path.normpath(path)
             
-            # Don't allow going outside the root directory
-            if path.startswith(".."):
-                return {"error": "Invalid path"}, 400
+            # Handle empty path: find root directories
+            if not path:
+                # Try to find some useful starting directories
+                root_dirs = []
+                
+                # Add models directory if exists
+                try:
+                    import folder_paths
+                    models_dir = os.path.join(folder_paths.models_dir)
+                    if os.path.exists(models_dir) and os.path.isdir(models_dir):
+                        root_dirs.append({"name": "models", "path": models_dir})
+                except:
+                    pass
+                
+                # Add current directory and parent
+                root_dirs.append({"name": "Current directory", "path": "."})
+                root_dirs.append({"name": "Parent directory", "path": ".."})
+                
+                # Add root directories in Linux/Mac
+                if os.path.exists("/"):
+                    try:
+                        for item in os.listdir("/"):
+                            item_path = os.path.join("/", item)
+                            if os.path.isdir(item_path):
+                                root_dirs.append({"name": item, "path": item_path})
+                    except:
+                        pass
+                
+                # Add drives in Windows
+                if os.name == 'nt':
+                    import string
+                    drives = []
+                    for drive in string.ascii_uppercase:
+                        if os.path.exists(f"{drive}:\\"):
+                            root_dirs.append({"name": f"{drive}:", "path": f"{drive}:\\"})
+                
+                return {
+                    "current_path": "",
+                    "parent_path": "",
+                    "directories": root_dirs,
+                    "files": []
+                }
             
-            # Full path
-            full_path = os.path.abspath(path) if path else os.path.abspath(".")
+            # Get full path
+            full_path = os.path.abspath(path)
             
             # Check if path exists
-            if not os.path.exists(full_path):
-                return {"error": "Path does not exist"}, 404
+            if not os.path.exists(full_path) or not os.path.isdir(full_path):
+                return {"error": "Path does not exist or is not a directory"}, 404
+            
+            # Get parent path
+            parent_path = os.path.dirname(full_path)
             
             # Get directories and files
             directories = []
             files = []
             
-            for item in os.listdir(full_path):
-                item_path = os.path.join(full_path, item)
-                if os.path.isdir(item_path):
-                    directories.append({
-                        "name": item,
-                        "path": os.path.join(path, item) if path else item
-                    })
-                elif os.path.isfile(item_path) and (item.endswith(".safetensors") or item.endswith(".ckpt")):
-                    files.append({
-                        "name": item,
-                        "path": os.path.join(path, item) if path else item,
-                        "size": os.path.getsize(item_path),
-                        "modified": os.path.getmtime(item_path)
-                    })
+            # Define valid extensions based on model_type
+            valid_extensions = []
+            if model_type == "safetensors" or model_type == "all":
+                valid_extensions.append(".safetensors")
+            if model_type == "ckpt" or model_type == "all":
+                valid_extensions.append(".ckpt")
+            
+            try:
+                for item in os.listdir(full_path):
+                    item_path = os.path.join(full_path, item)
+                    
+                    # Add directories
+                    if os.path.isdir(item_path):
+                        directories.append({
+                            "name": item,
+                            "path": item_path
+                        })
+                    # Add files with valid extensions
+                    elif os.path.isfile(item_path):
+                        _, ext = os.path.splitext(item)
+                        if not valid_extensions or ext.lower() in valid_extensions:
+                            try:
+                                files.append({
+                                    "name": item,
+                                    "path": item_path,
+                                    "size": os.path.getsize(item_path),
+                                    "modified": os.path.getmtime(item_path)
+                                })
+                            except:
+                                # If we can't get size or mtime, still include the file
+                                files.append({
+                                    "name": item,
+                                    "path": item_path
+                                })
+            except Exception as e:
+                return {"error": f"Error reading directory: {str(e)}"}, 500
             
             return {
-                "current_path": path,
+                "current_path": full_path,
+                "parent_path": parent_path,
                 "directories": sorted(directories, key=lambda d: d["name"]),
                 "files": sorted(files, key=lambda f: f["name"])
             }
         except Exception as e:
             log.error(f"Error in list_directories: {str(e)}")
             return {"error": str(e)}, 500
-            
+    
     @server.route("/hy3d/model_path", methods=["GET"])
     def get_model_path():
         try:

@@ -87,169 +87,260 @@ async function fetchDirectories(path = "") {
 }
 
 function addModelFilePathWidget(nodeType, nodeData) {
-    chainCallback(nodeType.prototype, "onCreated", function() {
+    chainCallback(nodeType.prototype, "onNodeCreated", function() {
         const that = this;
-        let models = {};
         
-        // Cache original widget draw function to modify behavior
-        const origDrawWidgetValue = LiteGraph.ContextMenu.prototype.drawWidgetValue;
+        // Estado interno
+        this._currentPath = "";
+        this._selectedFilePath = "";
+        this._selectedFileName = "";
         
-        // Add a widget to display the full path (read-only)
-        const fullPathWidget = this.addWidget("text", "Full Path", "Select a model to see its path", null);
-        fullPathWidget.disabled = true; // Make it read-only
+        // Crear el contenedor del explorador de archivos
+        const explorerContainer = document.createElement("div");
+        explorerContainer.className = "hy3d-file-explorer";
+        explorerContainer.style.display = "none";
+        explorerContainer.style.position = "absolute";
+        explorerContainer.style.width = "500px";
+        explorerContainer.style.maxHeight = "400px";
+        explorerContainer.style.overflowY = "auto";
+        explorerContainer.style.backgroundColor = "#2a2a2a";
+        explorerContainer.style.border = "1px solid #444";
+        explorerContainer.style.borderRadius = "5px";
+        explorerContainer.style.zIndex = "1000";
+        explorerContainer.style.padding = "10px";
+        explorerContainer.style.boxShadow = "0 0 10px rgba(0,0,0,0.5)";
         
-        // Create select element for filters
-        this.widgets.forEach((w, i) => {
-            if (w.name === 'filter') {
-                w.customTips = "Click to filter models";
-                w.options = {};
-                w.combo = true;
-                w.descriptor = "Click to filter models";
-                
-                // Modify the draw function to show the dropdown correctly
-                w.draw = function(ctx, node, width, pos, height) {
-                    if (!ctx) {
-                        return;
-                    }
-                    return origDrawWidgetValue.call(that, ctx, this, width, pos, height);
-                };
-                
-                // Handle filter selection
-                w.callback = function(value, options, e, event) {
-                    if (value) {
-                        // Implementation depends on how the filters are organized in your ComfyUI fork
-                        // This is a simplified example
-                        let currentModelName = that.widgets.find(w => w.name === 'ckpt_name').value;
-                        let filterType = value.toLowerCase();
-                        
-                        if (filterType === "custom") {
-                            // Display custom models
-                            that.widgets.find(w => w.name === 'custom').onClicked?.call(that, w);
-                        } else if (filterType === "flux") {
-                            // Display flux models
-                            that.widgets.find(w => w.name === 'flux').onClicked?.call(that, w);
-                        } else if (filterType === "hunyuan3d") {
-                            // Display hunyuan3d models
-                            that.widgets.find(w => w.name === 'hunyuan3d').onClicked?.call(that, w);
-                        } else if (filterType === "sdxl") {
-                            // Display SDXL models
-                            that.widgets.find(w => w.name === 'sdxl').onClicked?.call(that, w);
-                        } else if (filterType === "v1") {
-                            // Display v1 models
-                            that.widgets.find(w => w.name === 'v1').onClicked?.call(that, w);
-                        }
-                    }
-                };
+        document.body.appendChild(explorerContainer);
+        
+        // Añadir widgets
+        const directoryWidget = this.addWidget("text", "Directory", "", (value) => {
+            this._currentPath = value;
+        });
+        
+        const selectedFileWidget = this.addWidget("text", "Selected File", "No file selected", null);
+        selectedFileWidget.disabled = true;
+        
+        const selectedPathWidget = this.addWidget("text", "Full Path", "", null);
+        selectedPathWidget.disabled = true;
+        
+        // Añadir botón para abrir explorador
+        const browseButton = this.addWidget("button", "Browse Files", null, async () => {
+            // Posicionar el explorador cerca del nodo
+            const nodeRect = this.getBounding();
+            if (nodeRect) {
+                explorerContainer.style.left = (nodeRect.x + nodeRect.width + 10) + "px";
+                explorerContainer.style.top = nodeRect.y + "px";
             }
             
-            // Add click handlers for category filters
-            if (['custom', 'flux', 'hunyuan3d', 'sdxl', 'v1'].includes(w.name)) {
-                w.hidden = true; // Hide these widgets as they're just used for filtering
-                w.onClicked = function(widget) {
-                    const ckptWidget = that.widgets.find(w => w.name === 'ckpt_name');
-                    
-                    // Filter models based on category
-                    // This will require a different implementation depending on your model naming convention
-                    // Here we simply filter by comparing part of the model filename
-                    const filteredModels = ckptWidget.options.values.filter(model => {
-                        if (widget.name === 'custom') {
-                            return model.startsWith("custom_");
-                        } else if (widget.name === 'flux') {
-                            return model.includes("flux");
-                        } else if (widget.name === 'hunyuan3d') {
-                            return model.includes("hunyuan");
-                        } else if (widget.name === 'sdxl') {
-                            return model.includes("sdxl");
-                        } else if (widget.name === 'v1') {
-                            return model.includes("v1") || model.includes("sd-v1");
-                        }
-                        return true;
+            // Mostrar el explorador
+            explorerContainer.style.display = "block";
+            
+            // Cargar el directorio inicial
+            await loadDirectory(this._currentPath || "", this.widgets.find(w => w.name === "model_type").value);
+        });
+        
+        // Función para cargar un directorio
+        async function loadDirectory(path, modelType = "all") {
+            try {
+                explorerContainer.innerHTML = "<div style='padding: 10px;'>Loading...</div>";
+                
+                // Hacer la petición al endpoint
+                const response = await fetch(`/hy3d/list_dirs?path=${encodeURIComponent(path)}&model_type=${encodeURIComponent(modelType)}`);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Error ${response.status}: ${errorText}`);
+                }
+                
+                const data = await response.json();
+                that._currentPath = data.current_path;
+                directoryWidget.value = data.current_path;
+                
+                // Resetear el contenedor
+                explorerContainer.innerHTML = "";
+                
+                // Añadir encabezado con ruta actual
+                const header = document.createElement("div");
+                header.style.padding = "5px";
+                header.style.marginBottom = "10px";
+                header.style.borderBottom = "1px solid #444";
+                header.style.fontWeight = "bold";
+                header.textContent = `Current directory: ${data.current_path || "/"}`;
+                explorerContainer.appendChild(header);
+                
+                // Añadir botón para ir al directorio padre
+                if (data.parent_path && data.parent_path !== data.current_path) {
+                    const parentDir = document.createElement("div");
+                    parentDir.className = "hy3d-directory-item";
+                    parentDir.innerHTML = "📁 ../ (Parent Directory)";
+                    parentDir.style.padding = "5px";
+                    parentDir.style.cursor = "pointer";
+                    parentDir.style.borderRadius = "3px";
+                    parentDir.style.marginBottom = "2px";
+                    parentDir.addEventListener("mouseover", () => {
+                        parentDir.style.backgroundColor = "#444";
                     });
-                    
-                    // Update the dropdown options
-                    ckptWidget.options.values = filteredModels;
-                    if (filteredModels.length > 0) {
-                        // Select first model in filtered list if current selection isn't in the filtered list
-                        if (!filteredModels.includes(ckptWidget.value)) {
-                            ckptWidget.value = filteredModels[0];
-                            // Trigger the update
-                            ckptWidget.callback(ckptWidget.value);
-                        }
-                    }
-                    
-                    // Update filter display
-                    that.widgets.find(w => w.name === 'filter').value = widget.name;
-                };
+                    parentDir.addEventListener("mouseout", () => {
+                        parentDir.style.backgroundColor = "transparent";
+                    });
+                    parentDir.addEventListener("click", () => {
+                        loadDirectory(data.parent_path, modelType);
+                    });
+                    explorerContainer.appendChild(parentDir);
+                }
+                
+                // Añadir directorios
+                data.directories.forEach(dir => {
+                    const dirElement = document.createElement("div");
+                    dirElement.className = "hy3d-directory-item";
+                    dirElement.innerHTML = `📁 ${dir.name}`;
+                    dirElement.style.padding = "5px";
+                    dirElement.style.cursor = "pointer";
+                    dirElement.style.borderRadius = "3px";
+                    dirElement.style.marginBottom = "2px";
+                    dirElement.addEventListener("mouseover", () => {
+                        dirElement.style.backgroundColor = "#444";
+                    });
+                    dirElement.addEventListener("mouseout", () => {
+                        dirElement.style.backgroundColor = "transparent";
+                    });
+                    dirElement.addEventListener("click", () => {
+                        loadDirectory(dir.path, modelType);
+                    });
+                    explorerContainer.appendChild(dirElement);
+                });
+                
+                // Añadir archivos
+                data.files.forEach(file => {
+                    const fileElement = document.createElement("div");
+                    fileElement.className = "hy3d-file-item";
+                    fileElement.innerHTML = `📄 ${file.name}`;
+                    fileElement.style.padding = "5px";
+                    fileElement.style.cursor = "pointer";
+                    fileElement.style.borderRadius = "3px";
+                    fileElement.style.marginBottom = "2px";
+                    fileElement.addEventListener("mouseover", () => {
+                        fileElement.style.backgroundColor = "#444";
+                    });
+                    fileElement.addEventListener("mouseout", () => {
+                        fileElement.style.backgroundColor = "transparent";
+                    });
+                    fileElement.addEventListener("click", () => {
+                        // Seleccionar este archivo
+                        that._selectedFilePath = file.path;
+                        that._selectedFileName = file.name;
+                        
+                        // Actualizar widgets
+                        selectedFileWidget.value = file.name;
+                        selectedPathWidget.value = file.path;
+                        
+                        // Actualizar outputs
+                        that.outputs[0].name = "model_path: " + file.path;
+                        that.outputs[1].name = "model_name: " + file.name;
+                        
+                        // Cerrar el explorador
+                        explorerContainer.style.display = "none";
+                        
+                        // Notificar que se ha cambiado la salida para que se actualice la interfaz
+                        that.setDirtyCanvas(true, false);
+                    });
+                    explorerContainer.appendChild(fileElement);
+                });
+                
+                // Si no hay directorios ni archivos
+                if (data.directories.length === 0 && data.files.length === 0) {
+                    const emptyMsg = document.createElement("div");
+                    emptyMsg.style.padding = "10px";
+                    emptyMsg.style.fontStyle = "italic";
+                    emptyMsg.textContent = "Empty directory";
+                    explorerContainer.appendChild(emptyMsg);
+                }
+                
+                // Añadir botón para cerrar
+                const closeButton = document.createElement("button");
+                closeButton.textContent = "Close";
+                closeButton.style.marginTop = "10px";
+                closeButton.style.padding = "5px 10px";
+                closeButton.style.cursor = "pointer";
+                closeButton.addEventListener("click", () => {
+                    explorerContainer.style.display = "none";
+                });
+                explorerContainer.appendChild(closeButton);
+                
+            } catch (error) {
+                console.error("Error loading directory:", error);
+                explorerContainer.innerHTML = `<div style="color: red; padding: 10px;">Error: ${error.message}</div>`;
+                
+                // Añadir botón para cerrar
+                const closeButton = document.createElement("button");
+                closeButton.textContent = "Close";
+                closeButton.style.marginTop = "10px";
+                closeButton.style.padding = "5px 10px";
+                closeButton.style.cursor = "pointer";
+                closeButton.addEventListener("click", () => {
+                    explorerContainer.style.display = "none";
+                });
+                explorerContainer.appendChild(closeButton);
             }
-            
-            // Add handler for ckpt_name selection
-            if (w.name === 'ckpt_name') {
-                w.callback = function(value) {
-                    if (value) {
-                        // When a model is selected
-                        // Get the full path
-                        const modelPath = value; // The actual path is resolved on the backend
-                        
-                        // Update outputs
-                        that.outputs[0].name = "model_path: " + modelPath;
-                        that.outputs[1].name = "model_name: " + value;
-                        
-                        // Store values for serialization
-                        that._filePath = modelPath;
-                        that._fileName = value;
-                        
-                        // Request the full path from the server
-                        fetch(`/hy3d/model_path?name=${encodeURIComponent(value)}`)
-                            .then(response => response.json())
-                            .then(data => {
-                                if (data.path) {
-                                    // Update the full path widget with the actual path
-                                    const fullPathWidget = that.widgets.find(w => w.name === 'Full Path');
-                                    if (fullPathWidget) {
-                                        fullPathWidget.value = data.path;
-                                    }
-                                    // Store the full path
-                                    that._fullPath = data.path;
-                                }
-                            })
-                            .catch(error => {
-                                console.error("Error fetching model path:", error);
-                            });
-                    }
-                };
+        }
+        
+        // Cerrar explorador al hacer clic fuera
+        document.addEventListener("click", (e) => {
+            if (!explorerContainer.contains(e.target) && 
+                !browseButton.element.contains(e.target) && 
+                explorerContainer.style.display === "block") {
+                explorerContainer.style.display = "none";
             }
         });
-    });
-    
-    // Handle serialization
-    chainCallback(nodeType.prototype, "onSerialize", function(o) {
-        if (this._filePath) o.filePath = this._filePath;
-        if (this._fileName) o.fileName = this._fileName;
-        if (this._fullPath) o.fullPath = this._fullPath;
-    });
-    
-    // Handle deserialization
-    chainCallback(nodeType.prototype, "onConfigure", function(o) {
-        if (o.filePath) this._filePath = o.filePath;
-        if (o.fileName) this._fileName = o.fileName;
-        if (o.fullPath) this._fullPath = o.fullPath;
         
-        // Update widget values
+        // Eliminar el explorador cuando se elimine el nodo
+        this.onRemoved = () => {
+            if (explorerContainer && explorerContainer.parentNode) {
+                explorerContainer.parentNode.removeChild(explorerContainer);
+            }
+        };
+        
+        // Personalizar las salidas
+        this.outputs[0].name = "model_path: None";
+        this.outputs[1].name = "model_name: None";
+    });
+    
+    // Serialización
+    chainCallback(nodeType.prototype, "onSerialize", function(o) {
+        o.selectedFilePath = this._selectedFilePath;
+        o.selectedFileName = this._selectedFileName;
+        o.currentPath = this._currentPath;
+    });
+    
+    // Deserialización
+    chainCallback(nodeType.prototype, "onConfigure", function(o) {
+        if (o.selectedFilePath) this._selectedFilePath = o.selectedFilePath;
+        if (o.selectedFileName) this._selectedFileName = o.selectedFileName;
+        if (o.currentPath) this._currentPath = o.currentPath;
+        
+        // Actualizar widgets
         setTimeout(() => {
-            const ckptWidget = this.widgets.find(w => w.name === 'ckpt_name');
-            if (ckptWidget && this._fileName) {
-                ckptWidget.value = this._fileName;
+            const directoryWidget = this.widgets.find(w => w.name === "Directory");
+            if (directoryWidget && this._currentPath) {
+                directoryWidget.value = this._currentPath;
             }
             
-            // Update the full path widget if available
-            const fullPathWidget = this.widgets.find(w => w.name === 'Full Path');
-            if (fullPathWidget && this._fullPath) {
-                fullPathWidget.value = this._fullPath;
+            const selectedFileWidget = this.widgets.find(w => w.name === "Selected File");
+            if (selectedFileWidget && this._selectedFileName) {
+                selectedFileWidget.value = this._selectedFileName;
             }
             
-            // Update outputs
-            if (this._filePath) this.outputs[0].name = "model_path: " + this._filePath;
-            if (this._fileName) this.outputs[1].name = "model_name: " + this._fileName;
+            const selectedPathWidget = this.widgets.find(w => w.name === "Full Path");
+            if (selectedPathWidget && this._selectedFilePath) {
+                selectedPathWidget.value = this._selectedFilePath;
+            }
+            
+            // Actualizar outputs
+            if (this._selectedFilePath) {
+                this.outputs[0].name = "model_path: " + this._selectedFilePath;
+            }
+            if (this._selectedFileName) {
+                this.outputs[1].name = "model_name: " + this._selectedFileName;
+            }
         }, 100);
     });
 }

@@ -133,11 +133,18 @@ class Hy3DModelLoader:
             # Direct path from Hy3DModelFilePath
             model_path_to_use = model_path
             # Check if it's a safetensors file
-            is_safetensors = model_path_to_use.endswith(".safetensors")
+            is_safetensors = model_path_to_use.lower().endswith(".safetensors")
+            log.info(f"Using model from file explorer: {model_path_to_use}")
         else:
             # Standard path from selector
             model_path_to_use = folder_paths.get_full_path("diffusion_models", model)
             is_safetensors = True  # Assuming standard models are safetensors
+            log.info(f"Using model from selector: {model_path_to_use}")
+
+        # Check if the model file exists
+        if not os.path.exists(model_path_to_use):
+            log.error(f"Model file not found: {model_path_to_use}")
+            raise FileNotFoundError(f"Model file not found: {model_path_to_use}")
 
         pipe, vae = Hunyuan3DDiTFlowMatchingPipeline.from_single_file(
             ckpt_path=model_path_to_use, 
@@ -1610,14 +1617,8 @@ class Hy3DModelFilePath:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "ckpt_name": (folder_paths.get_filename_list("diffusion_models"), {"tooltip": "Select a model from diffusion_models directory"}),
-                "filter": ("STRING", {"default": "Filter list"}),
-                "custom": (["custom"], {"default": "custom"}),
-                "flux": (["flux"], {"default": "flux"}),
-                "hunyuan3d": (["hunyuan3d"], {"default": "hunyuan3d"}),
-                "sdxl": (["sdxl"], {"default": "sdxl"}),
-                "v1": (["v1"], {"default": "v1"}),
-                "model_type": (["safetensors", "ckpt", "all"], {"default": "safetensors"}),
+                "directory": ("STRING", {"default": "", "multiline": False, "tooltip": "Directorio inicial para buscar modelos"}),
+                "model_type": (["safetensors", "ckpt", "all"], {"default": "all", "tooltip": "Tipo de modelo a filtrar"}),
             }
         }
     
@@ -1625,20 +1626,34 @@ class Hy3DModelFilePath:
     RETURN_NAMES = ("model_path", "model_name")
     FUNCTION = "get_path"
     CATEGORY = "Hunyuan3DWrapper"
-    DESCRIPTION = "Select a model file from the available models, with filtering options"
+    DESCRIPTION = "Seleccionar un archivo de modelo usando un explorador de archivos"
 
-    def get_path(self, ckpt_name, filter=None, custom=None, flux=None, hunyuan3d=None, sdxl=None, v1=None, model_type=None):
-        # Get the full path to the selected model
-        model_path = folder_paths.get_full_path("diffusion_models", ckpt_name)
+    def get_path(self, directory="", model_type="all"):
+        # Esta función ahora solo sirve como punto de entrada
+        # La ruta real se establecerá mediante JavaScript
+        # y se pasará a otros nodos
         
-        # If no model is selected (or the path is invalid), return empty values
-        if not model_path or not os.path.exists(model_path):
-            return ("", "No model selected")
-        
-        # Log the path for debugging
-        log.info(f"Selected model: {ckpt_name}, Full path: {model_path}")
-        
-        return (model_path, ckpt_name)
+        # Si se proporciona un directorio, verificamos que exista
+        if directory and os.path.exists(directory):
+            # Directorio válido
+            pass
+        else:
+            # Si no se proporciona un directorio o no es válido,
+            # podemos intentar usar el directorio por defecto de modelos
+            try:
+                # Intentar encontrar el directorio de diffusion_models
+                import folder_paths
+                for dir_path in folder_paths.folder_names_and_paths["diffusion_models"][0]:
+                    if os.path.exists(dir_path):
+                        directory = dir_path
+                        break
+            except:
+                # Si no podemos, usamos el directorio actual
+                directory = "."
+                
+        # El valor real se establecerá mediante la interfaz JavaScript
+        # Estos valores son solo placeholders
+        return ("", "No model selected")
 
 NODE_CLASS_MAPPINGS = {
     "Hy3DModelLoader": Hy3DModelLoader,
