@@ -171,6 +171,27 @@ def register_api_endpoints(server):
                 "files": sorted(files, key=lambda f: f["name"])
             }
         except Exception as e:
-            log.error(f"Error listing directories: {str(e)}")
-            log.error(traceback.format_exc())
+            log.error(f"Error in list_directories: {str(e)}")
+            return {"error": str(e)}, 500
+            
+    @server.route("/hy3d/model_path", methods=["GET"])
+    def get_model_path():
+        try:
+            model_name = server.args.get("name", "")
+            if not model_name:
+                return {"error": "No model name provided"}, 400
+            
+            # Get the full path from folder_paths
+            import folder_paths
+            full_path = folder_paths.get_full_path("diffusion_models", model_name)
+            
+            if not full_path or not os.path.exists(full_path):
+                return {"error": "Model not found"}, 404
+                
+            return {
+                "name": model_name,
+                "path": full_path
+            }
+        except Exception as e:
+            log.error(f"Error in get_model_path: {str(e)}")
             return {"error": str(e)}, 500

@@ -94,6 +94,10 @@ function addModelFilePathWidget(nodeType, nodeData) {
         // Cache original widget draw function to modify behavior
         const origDrawWidgetValue = LiteGraph.ContextMenu.prototype.drawWidgetValue;
         
+        // Add a widget to display the full path (read-only)
+        const fullPathWidget = this.addWidget("text", "Full Path", "Select a model to see its path", null);
+        fullPathWidget.disabled = true; // Make it read-only
+        
         // Create select element for filters
         this.widgets.forEach((w, i) => {
             if (w.name === 'filter') {
@@ -193,6 +197,24 @@ function addModelFilePathWidget(nodeType, nodeData) {
                         // Store values for serialization
                         that._filePath = modelPath;
                         that._fileName = value;
+                        
+                        // Request the full path from the server
+                        fetch(`/hy3d/model_path?name=${encodeURIComponent(value)}`)
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.path) {
+                                    // Update the full path widget with the actual path
+                                    const fullPathWidget = that.widgets.find(w => w.name === 'Full Path');
+                                    if (fullPathWidget) {
+                                        fullPathWidget.value = data.path;
+                                    }
+                                    // Store the full path
+                                    that._fullPath = data.path;
+                                }
+                            })
+                            .catch(error => {
+                                console.error("Error fetching model path:", error);
+                            });
                     }
                 };
             }
@@ -203,18 +225,26 @@ function addModelFilePathWidget(nodeType, nodeData) {
     chainCallback(nodeType.prototype, "onSerialize", function(o) {
         if (this._filePath) o.filePath = this._filePath;
         if (this._fileName) o.fileName = this._fileName;
+        if (this._fullPath) o.fullPath = this._fullPath;
     });
     
     // Handle deserialization
     chainCallback(nodeType.prototype, "onConfigure", function(o) {
         if (o.filePath) this._filePath = o.filePath;
         if (o.fileName) this._fileName = o.fileName;
+        if (o.fullPath) this._fullPath = o.fullPath;
         
         // Update widget values
         setTimeout(() => {
             const ckptWidget = this.widgets.find(w => w.name === 'ckpt_name');
             if (ckptWidget && this._fileName) {
                 ckptWidget.value = this._fileName;
+            }
+            
+            // Update the full path widget if available
+            const fullPathWidget = this.widgets.find(w => w.name === 'Full Path');
+            if (fullPathWidget && this._fullPath) {
+                fullPathWidget.value = this._fullPath;
             }
             
             // Update outputs

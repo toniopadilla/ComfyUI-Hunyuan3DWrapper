@@ -1635,6 +1635,9 @@ class Hy3DModelFilePath:
         if not model_path or not os.path.exists(model_path):
             return ("", "No model selected")
         
+        # Log the path for debugging
+        log.info(f"Selected model: {ckpt_name}, Full path: {model_path}")
+        
         return (model_path, ckpt_name)
 
 NODE_CLASS_MAPPINGS = {
